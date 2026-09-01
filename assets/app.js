@@ -1,680 +1,285 @@
+/* =========================
+   DEZN AI — Frontend Logic
+========================= */
+
 const chatEl = document.getElementById("chat");
-const input = document.getElementById("input");
-const composer = document.getElementById("composer");
-const send = document.getElementById("send");
-const newChat = document.getElementById("newChat");
-const clearChat = document.getElementById("clearChat");
+const welcomeEl = document.getElementById("welcome");
+const formEl = document.getElementById("composer");
+const inputEl = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const newChatBtn = document.getElementById("newChat");
+const clearChatBtn = document.getElementById("clearChat");
 const historyEl = document.getElementById("history");
 
-const STORAGE_KEY = "dezn_chats_v2";
-const MAX_CHATS = 30;
-
 let messages = [];
+let isLoading = false;
 let currentChatId = null;
-let chats = loadChats();
 
-function loadChats() {
+/* =========================
+   INIT
+========================= */
+
+function init() {
+  loadHistory();
+  autoResizeTextarea();
+  bindEvents();
+}
+
+function bindEvents() {
+  formEl.addEventListener("submit", handleSubmit);
+
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      formEl.requestSubmit();
+    }
+  });
+
+  inputEl.addEventListener("input", autoResizeTextarea);
+
+  newChatBtn.addEventListener("click", startNewChat);
+  clearChatBtn.addEventListener("click", clearCurrentChat);
+
+  document.querySelectorAll(".suggestions button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prompt = btn.dataset.prompt;
+      if (prompt) {
+        inputEl.value = prompt;
+        formEl.requestSubmit();
+      }
+    });
+  });
+}
+
+/* =========================
+   TEXTAREA AUTO-RESIZE
+========================= */
+
+function autoResizeTextarea() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
+}
+
+/* =========================
+   CHAT HANDLING
+========================= */
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  if (isLoading) return;
+
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  // Hide welcome
+  if (welcomeEl) welcomeEl.style.display = "none";
+
+  // Add user message
+  addMessage("user", text);
+  messages.push({ role: "user", content: text });
+
+  inputEl.value = "";
+  autoResizeTextarea();
+  setLoading(true);
+
+  // Create typing indicator
+  const typingId = showTyping();
+
   try {
-    const data = JSON.parse(
-      localStorage.getItem(STORAGE_KEY) || "[]"
-    );
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
 
-    return Array.isArray(data) ? data : [];
+    const data = await response.json();
+
+    removeTyping(typingId);
+
+    if (!response.ok) {
+      throw new Error(data.error || "حدث خطأ في الاتصال");
+    }
+
+    const aiText = data.text || "لم أستطع توليد رد.";
+    addMessage("assistant", aiText);
+    messages.push({ role: "assistant", content: aiText });
+
+    // Save to history
+    saveCurrentChat();
+  } catch (err) {
+    removeTyping(typingId);
+    addMessage("assistant", `⚠️ ${err.message}`);
+  } finally {
+    setLoading(false);
+    inputEl.focus();
+  }
+}
+
+function addMessage(role, content) {
+  const div = document.createElement("div");
+  div.className = `message ${role}`;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+
+  if (role === "user") {
+    avatar.textContent = "U";
+  } else {
+    const img = document.createElement("img");
+    img.src = "/assets/dezn.svg";
+    img.alt = "DEZN";
+    avatar.appendChild(img);
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = content;
+
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  chatEl.appendChild(div);
+
+  // Scroll to bottom
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function showTyping() {
+  const id = "typing-" + Date.now();
+  const div = document.createElement("div");
+  div.className = "message assistant";
+  div.id = id;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  const img = document.createElement("img");
+  img.src = "/assets/dezn.svg";
+  img.alt = "DEZN";
+  avatar.appendChild(img);
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
+
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  return id;
+}
+
+function removeTyping(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function setLoading(state) {
+  isLoading = state;
+  sendBtn.disabled = state;
+  inputEl.disabled = state;
+}
+
+/* =========================
+   HISTORY (localStorage)
+========================= */
+
+function getHistory() {
+  try {
+    return JSON.parse(localStorage.getItem("dezn_chats") || "[]");
   } catch {
     return [];
   }
 }
 
-function saveChats() {
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify(chats.slice(0, MAX_CHATS))
-  );
+function saveHistory(list) {
+  localStorage.setItem("dezn_chats", JSON.stringify(list));
 }
-
-function createId() {
-  return `${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 10)}`;
-}
-
-function getChatTitle(list) {
-  const firstMessage = list.find(
-    message => message.role === "user"
-  );
-
-  if (!firstMessage) {
-    return "New Chat";
-  }
-
-  const title = firstMessage.content
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return title.length > 48
-    ? title.slice(0, 48) + "…"
-    : title;
-}
-
-
-/* =========================
-   SAVE CURRENT CHAT
-========================= */
 
 function saveCurrentChat() {
+  if (!messages.length) return;
 
-  if (!messages.length) {
-    return;
-  }
+  const history = getHistory();
+  const title = messages[0]?.content?.slice(0, 40) || "محادثة جديدة";
 
-  if (!currentChatId) {
-    currentChatId = createId();
-  }
-
-  const chatData = {
-    id: currentChatId,
-
-    title: getChatTitle(messages),
-
-    messages: messages.map(message => ({
-      role: message.role,
-      content: message.content
-    })),
-
-    updatedAt: Date.now()
-  };
-
-  const existingIndex = chats.findIndex(
-    chat => chat.id === currentChatId
-  );
-
-  if (existingIndex >= 0) {
-
-    // Update existing chat
-    chats[existingIndex] = chatData;
-
+  if (currentChatId) {
+    const idx = history.findIndex((c) => c.id === currentChatId);
+    if (idx !== -1) {
+      history[idx].messages = messages;
+      history[idx].title = title;
+      history[idx].updated = Date.now();
+    }
   } else {
-
-    // Create new chat
-    chats.unshift(chatData);
+    currentChatId = "chat_" + Date.now();
+    history.unshift({
+      id: currentChatId,
+      title,
+      messages: [...messages],
+      updated: Date.now(),
+    });
   }
 
-  chats.sort(
-    (a, b) =>
-      (b.updatedAt || 0) -
-      (a.updatedAt || 0)
-  );
-
-  chats = chats.slice(0, MAX_CHATS);
-
-  saveChats();
-
+  // Keep only last 30 chats
+  saveHistory(history.slice(0, 30));
   renderHistory();
 }
 
-
-/* =========================
-   RECENT CHATS
-========================= */
+function loadHistory() {
+  renderHistory();
+}
 
 function renderHistory() {
-
+  const history = getHistory();
   historyEl.innerHTML = "";
 
-  if (!chats.length) {
+  history.forEach((chat) => {
+    const item = document.createElement("div");
+    item.className = "history-item" + (chat.id === currentChatId ? " active" : "");
+    item.textContent = chat.title;
+    item.title = chat.title;
 
-    const empty = document.createElement("div");
+    item.addEventListener("click", () => {
+      loadChat(chat.id);
+    });
 
-    empty.className = "history-empty";
-
-    empty.textContent = "No recent chats";
-
-    historyEl.appendChild(empty);
-
-    return;
-  }
-
-  chats.forEach(chat => {
-
-    const button = document.createElement("button");
-
-    button.type = "button";
-
-    button.className = "history-item";
-
-    button.textContent =
-      chat.title || "New Chat";
-
-    button.title =
-      chat.title || "New Chat";
-
-    if (chat.id === currentChatId) {
-
-      button.classList.add("active");
-    }
-
-    button.addEventListener(
-      "click",
-      () => {
-
-        currentChatId = chat.id;
-
-        messages = Array.isArray(chat.messages)
-          ? chat.messages
-          : [];
-
-        renderHistory();
-
-        renderMessages();
-      }
-    );
-
-    historyEl.appendChild(button);
+    historyEl.appendChild(item);
   });
 }
 
+function loadChat(id) {
+  const history = getHistory();
+  const chat = history.find((c) => c.id === id);
+  if (!chat) return;
 
-/* =========================
-   RENDER CHAT
-========================= */
+  currentChatId = id;
+  messages = [...chat.messages];
 
-function renderMessages() {
-
+  // Clear UI
   chatEl.innerHTML = "";
+  if (welcomeEl) welcomeEl.style.display = "none";
 
-  if (!messages.length) {
-
-    chatEl.innerHTML = `
-
-      <div id="welcome" class="welcome">
-
-        <div class="logo-large">
-
-          <img
-            src="/assets/dezn.png"
-            alt="DEZN"
-          >
-
-        </div>
-
-        <h1>DEZN AI</h1>
-
-        <p>
-          Your intelligent assistant, built for DEZN.
-        </p>
-
-        <div class="suggestions">
-
-          <button
-            type="button"
-            data-prompt="Help me build a modern website"
-          >
-            Build a website
-          </button>
-
-          <button
-            type="button"
-            data-prompt="Explain this concept simply"
-          >
-            Explain something
-          </button>
-
-          <button
-            type="button"
-            data-prompt="Give me creative ideas for my project"
-          >
-            Creative ideas
-          </button>
-
-          <button
-            type="button"
-            data-prompt="Help me write professional content"
-          >
-            Write content
-          </button>
-
-        </div>
-
-      </div>
-    `;
-
-    bindSuggestions();
-
-    return;
-  }
-
-
-  messages.forEach(message => {
-
-    appendMessage(
-      message.role,
-      message.content
-    );
-
-  });
-
-  scrollToBottom();
+  messages.forEach((m) => addMessage(m.role, m.content));
+  renderHistory();
 }
 
-
-/* =========================
-   ADD MESSAGE
-========================= */
-
-function appendMessage(
-  role,
-  content
-) {
-
-  const row =
-    document.createElement("div");
-
-  row.className =
-    `message ${
-      role === "user"
-        ? "user"
-        : "ai"
-    }`;
-
-
-  const avatar =
-    document.createElement("div");
-
-  avatar.className = "avatar";
-
-  avatar.textContent =
-    role === "user"
-      ? "YOU"
-      : "DEZN";
-
-
-  const bubble =
-    document.createElement("div");
-
-  bubble.className = "bubble";
-
-  bubble.textContent = content;
-
-
-  row.appendChild(avatar);
-
-  row.appendChild(bubble);
-
-  chatEl.appendChild(row);
+function startNewChat() {
+  currentChatId = null;
+  messages = [];
+  chatEl.innerHTML = "";
+  if (welcomeEl) {
+    chatEl.appendChild(welcomeEl);
+    welcomeEl.style.display = "block";
+  }
+  renderHistory();
+  inputEl.focus();
 }
 
-
-/* =========================
-   TYPING INDICATOR
-========================= */
-
-function showTyping() {
-
-  document
-    .getElementById("typing")
-    ?.remove();
-
-
-  const row =
-    document.createElement("div");
-
-  row.id = "typing";
-
-  row.className =
-    "message ai";
-
-
-  row.innerHTML = `
-
-    <div class="avatar">
-      DEZN
-    </div>
-
-    <div class="bubble">
-
-      <div class="typing">
-
-        <span></span>
-        <span></span>
-        <span></span>
-
-      </div>
-
-    </div>
-
-  `;
-
-
-  chatEl.appendChild(row);
-
-  scrollToBottom();
+function clearCurrentChat() {
+  if (!confirm("هل تريد مسح المحادثة الحالية؟")) return;
+  startNewChat();
 }
 
-
 /* =========================
-   SCROLL
+   START
 ========================= */
 
-function scrollToBottom() {
-
-  chatEl.scrollTop =
-    chatEl.scrollHeight;
-}
-
-
-/* =========================
-   SUGGESTIONS
-========================= */
-
-function bindSuggestions() {
-
-  document
-    .querySelectorAll("[data-prompt]")
-    .forEach(button => {
-
-      button.addEventListener(
-        "click",
-        () => {
-
-          sendMessage(
-            button.dataset.prompt
-          );
-
-        }
-      );
-
-    });
-}
-
-
-/* =========================
-   SEND MESSAGE
-========================= */
-
-async function sendMessage(
-  rawText
-) {
-
-  const text =
-    String(rawText || "").trim();
-
-
-  if (
-    !text ||
-    send.disabled
-  ) {
-
-    return;
-  }
-
-
-  // Remove welcome screen
-  document
-    .getElementById("welcome")
-    ?.remove();
-
-
-  // Add user message
-  messages.push({
-    role: "user",
-    content: text
-  });
-
-
-  appendMessage(
-    "user",
-    text
-  );
-
-
-  // Clear input
-  input.value = "";
-
-  input.style.height =
-    "auto";
-
-
-  // Disable send button
-  send.disabled = true;
-
-
-  // Show typing
-  showTyping();
-
-
-  try {
-
-    const response =
-      await fetch(
-        "/api/chat",
-        {
-
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json"
-          },
-
-          body: JSON.stringify({
-            messages
-          })
-
-        }
-      );
-
-
-    let data;
-
-
-    try {
-
-      data =
-        await response.json();
-
-    } catch {
-
-      throw new Error(
-        `Server returned HTTP ${response.status}`
-      );
-
-    }
-
-
-    if (!response.ok) {
-
-      throw new Error(
-        data?.error ||
-        `Request failed (${response.status})`
-      );
-
-    }
-
-
-    const answer =
-      typeof data?.text === "string"
-        ? data.text.trim()
-        : "";
-
-
-    if (!answer) {
-
-      throw new Error(
-        "The AI returned an empty response."
-      );
-
-    }
-
-
-    // Remove typing indicator
-    document
-      .getElementById("typing")
-      ?.remove();
-
-
-    // Add AI response
-    messages.push({
-      role: "assistant",
-      content: answer
-    });
-
-
-    appendMessage(
-      "assistant",
-      answer
-    );
-
-
-    // Save chat
-    saveCurrentChat();
-
-
-  } catch (error) {
-
-    document
-      .getElementById("typing")
-      ?.remove();
-
-
-    appendMessage(
-      "assistant",
-
-      `حدث خطأ: ${
-        error?.message ||
-        "تعذر الاتصال بخدمة الذكاء الاصطناعي."
-      }`
-    );
-
-  } finally {
-
-    send.disabled = false;
-
-    input.focus();
-
-    scrollToBottom();
-  }
-}
-
-
-/* =========================
-   FORM SUBMIT
-========================= */
-
-composer.addEventListener(
-  "submit",
-  event => {
-
-    event.preventDefault();
-
-    sendMessage(
-      input.value
-    );
-
-  }
-);
-
-
-/* =========================
-   ENTER / SHIFT + ENTER
-========================= */
-
-input.addEventListener(
-  "keydown",
-  event => {
-
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey
-    ) {
-
-      event.preventDefault();
-
-      composer.requestSubmit();
-
-    }
-
-  }
-);
-
-
-/* =========================
-   AUTO RESIZE TEXTAREA
-========================= */
-
-input.addEventListener(
-  "input",
-  () => {
-
-    input.style.height =
-      "auto";
-
-    input.style.height =
-      Math.min(
-        input.scrollHeight,
-        180
-      ) + "px";
-
-  }
-);
-
-
-/* =========================
-   NEW CHAT
-========================= */
-
-newChat.addEventListener(
-  "click",
-  () => {
-
-    // Save current chat first
-    saveCurrentChat();
-
-
-    // Reset current chat
-    currentChatId = null;
-
-    messages = [];
-
-
-    renderHistory();
-
-    renderMessages();
-
-
-    input.focus();
-
-  }
-);
-
-
-/* =========================
-   CLEAR CHAT
-========================= */
-
-clearChat.addEventListener(
-  "click",
-  () => {
-
-    messages = [];
-
-    currentChatId = null;
-
-
-    renderHistory();
-
-    renderMessages();
-
-
-    input.focus();
-
-  }
-);
-
-
-/* =========================
-   INITIALIZE
-========================= */
-
-renderHistory();
-
-renderMessages();
+init();

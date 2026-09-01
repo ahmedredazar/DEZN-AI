@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000;
 
 const model =
   process.env.OPENAI_MODEL ||
-  "gpt-5.6-luna";
+  "gpt-4o-mini";
 
 
 /* =========================
