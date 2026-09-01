@@ -6,174 +6,675 @@ const newChat = document.getElementById("newChat");
 const clearChat = document.getElementById("clearChat");
 const historyEl = document.getElementById("history");
 
+const STORAGE_KEY = "dezn_chats_v2";
+const MAX_CHATS = 30;
+
 let messages = [];
-let chats = JSON.parse(localStorage.getItem("dezn_chats") || "[]");
+let currentChatId = null;
+let chats = loadChats();
+
+function loadChats() {
+  try {
+    const data = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "[]"
+    );
+
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
 
 function saveChats() {
-  localStorage.setItem("dezn_chats", JSON.stringify(chats.slice(-20)));
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify(chats.slice(0, MAX_CHATS))
+  );
 }
 
-function renderHistory() {
-  historyEl.innerHTML = "";
-  chats.slice().reverse().forEach((chat, index) => {
-    const btn = document.createElement("button");
-    btn.className = "history-item";
-    btn.textContent = chat.title || "New chat";
-    btn.onclick = () => loadChat(chats.length - 1 - index);
-    historyEl.appendChild(btn);
-  });
+function createId() {
+  return `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
-function loadChat(index) {
-  const chat = chats[index];
-  if (!chat) return;
-  messages = chat.messages || [];
-  renderMessages();
+function getChatTitle(list) {
+  const firstMessage = list.find(
+    message => message.role === "user"
+  );
+
+  if (!firstMessage) {
+    return "New Chat";
+  }
+
+  const title = firstMessage.content
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return title.length > 48
+    ? title.slice(0, 48) + "…"
+    : title;
 }
 
-function persistCurrentChat() {
-  if (!messages.length) return;
-  const first = messages.find(m => m.role === "user");
-  const title = first ? first.content.slice(0, 42) : "New chat";
-  chats.push({ title, messages });
-  if (chats.length > 20) chats.shift();
-  saveChats();
-  renderHistory();
-}
 
-function renderMessages() {
-  chatEl.innerHTML = "";
+/* =========================
+   SAVE CURRENT CHAT
+========================= */
+
+function saveCurrentChat() {
+
   if (!messages.length) {
-    chatEl.innerHTML = `
-      <div id="welcome" class="welcome">
-        <div class="logo-large"><img src="/dezn.png" alt="DEZN"></div>
-        <h1>DEZN AI</h1>
-        <p>Your intelligent assistant, built for DEZN.</p>
-        <div class="suggestions">
-          <button data-prompt="Help me build a modern website">Build a website</button>
-          <button data-prompt="Explain this concept simply">Explain something</button>
-          <button data-prompt="Give me creative ideas for my project">Creative ideas</button>
-          <button data-prompt="Help me write professional content">Write content</button>
-        </div>
-      </div>`;
-    bindSuggestions();
     return;
   }
 
-  messages.forEach(m => addMessage(m.role, m.content));
-  scrollBottom();
-}
-
-function addMessage(role, content) {
-  const row = document.createElement("div");
-  row.className = `message ${role === "user" ? "user" : "ai"}`;
-
-  const avatar = document.createElement("div");
-  avatar.className = "avatar";
-  avatar.textContent = role === "user" ? "YOU" : "DEZN";
-
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-  bubble.textContent = content;
-
-  row.appendChild(avatar);
-  row.appendChild(bubble);
-  chatEl.appendChild(row);
-}
-
-function showTyping() {
-  const row = document.createElement("div");
-  row.className = "message ai";
-  row.id = "typing";
-  row.innerHTML = `
-    <div class="avatar">DEZN</div>
-    <div class="bubble">
-      <div class="typing"><span></span><span></span><span></span></div>
-    </div>`;
-  chatEl.appendChild(row);
-  scrollBottom();
-}
-
-function scrollBottom() {
-  chatEl.scrollTop = chatEl.scrollHeight;
-}
-
-async function sendMessage(text) {
-  text = text.trim();
-  if (!text || send.disabled) return;
-
-  if (!messages.length) {
-    const welcome = document.getElementById("welcome");
-    if (welcome) welcome.remove();
+  if (!currentChatId) {
+    currentChatId = createId();
   }
 
-  messages.push({ role: "user", content: text });
-  addMessage("user", text);
-  input.value = "";
-  input.style.height = "auto";
-  send.disabled = true;
-  showTyping();
+  const chatData = {
+    id: currentChatId,
 
-  try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages })
-    });
+    title: getChatTitle(messages),
 
-    const data = await response.json();
-    document.getElementById("typing")?.remove();
+    messages: messages.map(message => ({
+      role: message.role,
+      content: message.content
+    })),
 
-    if (!response.ok) throw new Error(data.error || "Request failed");
+    updatedAt: Date.now()
+  };
 
-    messages.push({ role: "assistant", content: data.text });
-    addMessage("assistant", data.text);
-    persistCurrentChat();
-  } catch (error) {
-    document.getElementById("typing")?.remove();
-    addMessage("assistant", "حدث خطأ: " + error.message);
-  } finally {
-    send.disabled = false;
-    input.focus();
-    scrollBottom();
+  const existingIndex = chats.findIndex(
+    chat => chat.id === currentChatId
+  );
+
+  if (existingIndex >= 0) {
+
+    // Update existing chat
+    chats[existingIndex] = chatData;
+
+  } else {
+
+    // Create new chat
+    chats.unshift(chatData);
   }
+
+  chats.sort(
+    (a, b) =>
+      (b.updatedAt || 0) -
+      (a.updatedAt || 0)
+  );
+
+  chats = chats.slice(0, MAX_CHATS);
+
+  saveChats();
+
+  renderHistory();
 }
 
-function bindSuggestions() {
-  document.querySelectorAll("[data-prompt]").forEach(btn => {
-    btn.onclick = () => sendMessage(btn.dataset.prompt);
+
+/* =========================
+   RECENT CHATS
+========================= */
+
+function renderHistory() {
+
+  historyEl.innerHTML = "";
+
+  if (!chats.length) {
+
+    const empty = document.createElement("div");
+
+    empty.className = "history-empty";
+
+    empty.textContent = "No recent chats";
+
+    historyEl.appendChild(empty);
+
+    return;
+  }
+
+  chats.forEach(chat => {
+
+    const button = document.createElement("button");
+
+    button.type = "button";
+
+    button.className = "history-item";
+
+    button.textContent =
+      chat.title || "New Chat";
+
+    button.title =
+      chat.title || "New Chat";
+
+    if (chat.id === currentChatId) {
+
+      button.classList.add("active");
+    }
+
+    button.addEventListener(
+      "click",
+      () => {
+
+        currentChatId = chat.id;
+
+        messages = Array.isArray(chat.messages)
+          ? chat.messages
+          : [];
+
+        renderHistory();
+
+        renderMessages();
+      }
+    );
+
+    historyEl.appendChild(button);
   });
 }
 
-composer.addEventListener("submit", e => {
-  e.preventDefault();
-  sendMessage(input.value);
-});
 
-input.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    composer.requestSubmit();
+/* =========================
+   RENDER CHAT
+========================= */
+
+function renderMessages() {
+
+  chatEl.innerHTML = "";
+
+  if (!messages.length) {
+
+    chatEl.innerHTML = `
+
+      <div id="welcome" class="welcome">
+
+        <div class="logo-large">
+
+          <img
+            src="/assets/dezn.png"
+            alt="DEZN"
+          >
+
+        </div>
+
+        <h1>DEZN AI</h1>
+
+        <p>
+          Your intelligent assistant, built for DEZN.
+        </p>
+
+        <div class="suggestions">
+
+          <button
+            type="button"
+            data-prompt="Help me build a modern website"
+          >
+            Build a website
+          </button>
+
+          <button
+            type="button"
+            data-prompt="Explain this concept simply"
+          >
+            Explain something
+          </button>
+
+          <button
+            type="button"
+            data-prompt="Give me creative ideas for my project"
+          >
+            Creative ideas
+          </button>
+
+          <button
+            type="button"
+            data-prompt="Help me write professional content"
+          >
+            Write content
+          </button>
+
+        </div>
+
+      </div>
+    `;
+
+    bindSuggestions();
+
+    return;
   }
-});
 
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 180) + "px";
-});
 
-newChat.onclick = () => {
-  if (messages.length) persistCurrentChat();
-  messages = [];
-  renderMessages();
-  input.focus();
-};
+  messages.forEach(message => {
 
-clearChat.onclick = () => {
-  messages = [];
-  renderMessages();
-  input.focus();
-};
+    appendMessage(
+      message.role,
+      message.content
+    );
+
+  });
+
+  scrollToBottom();
+}
+
+
+/* =========================
+   ADD MESSAGE
+========================= */
+
+function appendMessage(
+  role,
+  content
+) {
+
+  const row =
+    document.createElement("div");
+
+  row.className =
+    `message ${
+      role === "user"
+        ? "user"
+        : "ai"
+    }`;
+
+
+  const avatar =
+    document.createElement("div");
+
+  avatar.className = "avatar";
+
+  avatar.textContent =
+    role === "user"
+      ? "YOU"
+      : "DEZN";
+
+
+  const bubble =
+    document.createElement("div");
+
+  bubble.className = "bubble";
+
+  bubble.textContent = content;
+
+
+  row.appendChild(avatar);
+
+  row.appendChild(bubble);
+
+  chatEl.appendChild(row);
+}
+
+
+/* =========================
+   TYPING INDICATOR
+========================= */
+
+function showTyping() {
+
+  document
+    .getElementById("typing")
+    ?.remove();
+
+
+  const row =
+    document.createElement("div");
+
+  row.id = "typing";
+
+  row.className =
+    "message ai";
+
+
+  row.innerHTML = `
+
+    <div class="avatar">
+      DEZN
+    </div>
+
+    <div class="bubble">
+
+      <div class="typing">
+
+        <span></span>
+        <span></span>
+        <span></span>
+
+      </div>
+
+    </div>
+
+  `;
+
+
+  chatEl.appendChild(row);
+
+  scrollToBottom();
+}
+
+
+/* =========================
+   SCROLL
+========================= */
+
+function scrollToBottom() {
+
+  chatEl.scrollTop =
+    chatEl.scrollHeight;
+}
+
+
+/* =========================
+   SUGGESTIONS
+========================= */
+
+function bindSuggestions() {
+
+  document
+    .querySelectorAll("[data-prompt]")
+    .forEach(button => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          sendMessage(
+            button.dataset.prompt
+          );
+
+        }
+      );
+
+    });
+}
+
+
+/* =========================
+   SEND MESSAGE
+========================= */
+
+async function sendMessage(
+  rawText
+) {
+
+  const text =
+    String(rawText || "").trim();
+
+
+  if (
+    !text ||
+    send.disabled
+  ) {
+
+    return;
+  }
+
+
+  // Remove welcome screen
+  document
+    .getElementById("welcome")
+    ?.remove();
+
+
+  // Add user message
+  messages.push({
+    role: "user",
+    content: text
+  });
+
+
+  appendMessage(
+    "user",
+    text
+  );
+
+
+  // Clear input
+  input.value = "";
+
+  input.style.height =
+    "auto";
+
+
+  // Disable send button
+  send.disabled = true;
+
+
+  // Show typing
+  showTyping();
+
+
+  try {
+
+    const response =
+      await fetch(
+        "/api/chat",
+        {
+
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            messages
+          })
+
+        }
+      );
+
+
+    let data;
+
+
+    try {
+
+      data =
+        await response.json();
+
+    } catch {
+
+      throw new Error(
+        `Server returned HTTP ${response.status}`
+      );
+
+    }
+
+
+    if (!response.ok) {
+
+      throw new Error(
+        data?.error ||
+        `Request failed (${response.status})`
+      );
+
+    }
+
+
+    const answer =
+      typeof data?.text === "string"
+        ? data.text.trim()
+        : "";
+
+
+    if (!answer) {
+
+      throw new Error(
+        "The AI returned an empty response."
+      );
+
+    }
+
+
+    // Remove typing indicator
+    document
+      .getElementById("typing")
+      ?.remove();
+
+
+    // Add AI response
+    messages.push({
+      role: "assistant",
+      content: answer
+    });
+
+
+    appendMessage(
+      "assistant",
+      answer
+    );
+
+
+    // Save chat
+    saveCurrentChat();
+
+
+  } catch (error) {
+
+    document
+      .getElementById("typing")
+      ?.remove();
+
+
+    appendMessage(
+      "assistant",
+
+      `حدث خطأ: ${
+        error?.message ||
+        "تعذر الاتصال بخدمة الذكاء الاصطناعي."
+      }`
+    );
+
+  } finally {
+
+    send.disabled = false;
+
+    input.focus();
+
+    scrollToBottom();
+  }
+}
+
+
+/* =========================
+   FORM SUBMIT
+========================= */
+
+composer.addEventListener(
+  "submit",
+  event => {
+
+    event.preventDefault();
+
+    sendMessage(
+      input.value
+    );
+
+  }
+);
+
+
+/* =========================
+   ENTER / SHIFT + ENTER
+========================= */
+
+input.addEventListener(
+  "keydown",
+  event => {
+
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+
+      event.preventDefault();
+
+      composer.requestSubmit();
+
+    }
+
+  }
+);
+
+
+/* =========================
+   AUTO RESIZE TEXTAREA
+========================= */
+
+input.addEventListener(
+  "input",
+  () => {
+
+    input.style.height =
+      "auto";
+
+    input.style.height =
+      Math.min(
+        input.scrollHeight,
+        180
+      ) + "px";
+
+  }
+);
+
+
+/* =========================
+   NEW CHAT
+========================= */
+
+newChat.addEventListener(
+  "click",
+  () => {
+
+    // Save current chat first
+    saveCurrentChat();
+
+
+    // Reset current chat
+    currentChatId = null;
+
+    messages = [];
+
+
+    renderHistory();
+
+    renderMessages();
+
+
+    input.focus();
+
+  }
+);
+
+
+/* =========================
+   CLEAR CHAT
+========================= */
+
+clearChat.addEventListener(
+  "click",
+  () => {
+
+    messages = [];
+
+    currentChatId = null;
+
+
+    renderHistory();
+
+    renderMessages();
+
+
+    input.focus();
+
+  }
+);
+
+
+/* =========================
+   INITIALIZE
+========================= */
 
 renderHistory();
+
 renderMessages();
