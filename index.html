@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DEZN AI</title>
+  <link rel="icon" href="/assets/dezn.png" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="/assets/dezn.png" alt="DEZN" />
+        <div>
+          <strong>DEZN</strong>
+          <span>AI</span>
+        </div>
+      </div>
+
+      <button id="newChat" class="new-chat">＋ New Chat</button>
+
+      <div class="history-title">RECENT CHATS</div>
+      <div id="history" class="history"></div>
+
+      <div class="sidebar-bottom">
+        <div class="status"><i></i> DEZN AI Online</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="mobile-brand">
+          <img src="/assets/dezn.png" alt="DEZN" />
+          <span>DEZN AI</span>
+        </div>
+        <button id="clearChat" class="icon-btn" title="Clear chat">⌫</button>
+      </header>
+
+      <section id="chat" class="chat">
+        <div id="welcome" class="welcome">
+          <div class="logo-large"><img src="/assets/dezn.png" alt="DEZN" /></div>
+          <h1>DEZN AI</h1>
+          <p>Your intelligent assistant, built for DEZN.</p>
+          <div class="suggestions">
+            <button data-prompt="Help me build a modern website">Build a website</button>
+            <button data-prompt="Explain this concept simply">Explain something</button>
+            <button data-prompt="Give me creative ideas for my project">Creative ideas</button>
+            <button data-prompt="Help me write professional content">Write content</button>
+          </div>
+        </div>
+      </section>
+
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="Message DEZN AI..." autocomplete="off"></textarea>
+        <button id="send" type="submit" aria-label="Send">➤</button>
+      </form>
+      <div class="disclaimer">DEZN AI can make mistakes. Check important information.</div>
+    </main>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
